@@ -6,18 +6,14 @@
 //
 
 import UIKit
+import CoreImage
 
-extension Notification.Name {
-    static let capturePhoto = Notification.Name("capturePhoto")
-}
-
-// UIImage convenience to ensure cgImage (if you need elsewhere)
 extension UIImage {
+    /// Ensure there is a cgImage (render if not present)
     func ensureCGImage() -> CGImage? {
         if let cg = self.cgImage { return cg }
-        // render into cg context
-        let renderer = UIGraphicsImageRenderer(size: self.size)
-        let img = renderer.image { _ in self.draw(at: .zero) }
-        return img.cgImage
+        guard let ci = CIImage(image: self) else { return nil }
+        let ctx = CIContext()
+        return ctx.createCGImage(ci, from: ci.extent)
     }
 }

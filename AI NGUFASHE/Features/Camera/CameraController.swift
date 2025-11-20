@@ -5,88 +5,92 @@
 //  Created by Audace Uhiriwe on 11/18/25.
 //
 
-import UIKit
 import AVFoundation
+import UIKit
 
-class CameraController: UIViewController {
+final class CameraController: NSObject {
     private let session = AVCaptureSession()
-    private let photoOutput = AVCapturePhotoOutput()
-    private var previewLayer: AVCaptureVideoPreviewLayer!
+    private let sessionQueue = DispatchQueue(label: "camera.session.queue")
+    private var photoOutput = AVCapturePhotoOutput()
 
-    // The delegate instance is supplied by the SwiftUI wrapper coordinator
-    weak var photoCaptureDelegate: AVCapturePhotoCaptureDelegate?
+    // keep delegate strong while capture is in progress
+    private var currentPhotoDelegate: AVCapturePhotoCaptureDelegate?
+
     var onPhotoCaptured: ((UIImage) -> Void)?
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = .black
-        setupSession()
-        setupPreview()
-        session.startRunning()
-
-        // listen for external "capture" requests (from a UI button)
-        NotificationCenter.default.addObserver(self, selector: #selector(handleCaptureNotification), name: .capturePhoto, object: nil)
+    override init() {
+        super.init()
+        configureSession()
     }
 
-    deinit {
-        NotificationCenter.default.removeObserver(self)
-    }
+    private func configureSession() {
+        sessionQueue.async {
+            self.session.beginConfiguration()
+            self.session.sessionPreset = .photo
 
-    private func setupSession() {
-        session.beginConfiguration()
-        session.sessionPreset = .photo
+            // camera device
+            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
+                  let input = try? AVCaptureDeviceInput(device: device),
+                  self.session.canAddInput(input) else {
+                print("Camera input unavailable")
+                self.session.commitConfiguration()
+                return
+            }
 
-        // add camera input
-        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
-              let input = try? AVCaptureDeviceInput(device: device),
-              session.canAddInput(input) else {
-            print("Couldn't create camera input")
-            return
+            self.session.addInput(input)
+
+            // photo output
+            if self.session.canAddOutput(self.photoOutput) {
+                self.session.addOutput(self.photoOutput)
+                self.photoOutput.isHighResolutionCaptureEnabled = true
+            }
+
+            self.session.commitConfiguration()
+            self.session.startRunning()
         }
-        session.addInput(input)
-
-        // add photo output
-        if session.canAddOutput(photoOutput) {
-            session.addOutput(photoOutput)
-            photoOutput.isHighResolutionCaptureEnabled = true
-        }
-
-        session.commitConfiguration()
     }
 
-    private func setupPreview() {
-        previewLayer = AVCaptureVideoPreviewLayer(session: session)
-        previewLayer.videoGravity = .resizeAspectFill
-        previewLayer.frame = view.bounds
-        previewLayer.connection?.videoOrientation = .portrait
-        view.layer.addSublayer(previewLayer)
-    }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        previewLayer.frame = view.bounds
-    }
-
-    @objc func handleCaptureNotification() {
-        capturePhoto()
+    func getSession() -> AVCaptureSession {
+        return session
     }
 
     func capturePhoto() {
         let settings = AVCapturePhotoSettings()
         settings.isHighResolutionPhotoEnabled = true
-        // prefer JPEG
-        settings.previewPhotoFormat = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
-        photoOutput.capturePhoto(with: settings, delegate: photoCaptureDelegate ?? self)
+
+        let delegate = PhotoCaptureDelegate { [weak self] data in
+            guard let d = data, let image = UIImage(data: d) else {
+                return
+            }
+            DispatchQueue.main.async {
+                self?.onPhotoCaptured?(image)
+            }
+            // release delegate after capture finished
+            self?.currentPhotoDelegate = nil
+        }
+
+        // keep a strong reference to the delegate so it lives until callback
+        self.currentPhotoDelegate = delegate
+
+        photoOutput.capturePhoto(with: settings, delegate: delegate)
     }
 }
 
-// fallback if someone forgets delegate (should not happen)
-extension CameraController: AVCapturePhotoCaptureDelegate {
+private class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
+    private let completion: (Data?) -> Void
+
+    init(completion: @escaping (Data?) -> Void) {
+        self.completion = completion
+    }
+
     func photoOutput(_ output: AVCapturePhotoOutput,
                      didFinishProcessingPhoto photo: AVCapturePhoto,
                      error: Error?) {
-        if let data = photo.fileDataRepresentation(), let image = UIImage(data: data) {
-            onPhotoCaptured?(image)
+        if let err = error {
+            print("Photo capture error: \(err)")
+            completion(nil)
+            return
         }
+        completion(photo.fileDataRepresentation())
     }
 }

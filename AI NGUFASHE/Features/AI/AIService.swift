@@ -4,67 +4,43 @@
 //
 //  Created by Audace Uhiriwe on 11/18/25.
 //
-
 import Foundation
 
-enum AIServiceError: Error {
-    case invalidURL
-    case serverError(String)
-    case decodingError
-    case unknown
-}
+final class AIService {
+    static let shared = AIService()
 
-class AIService {
-    // TODO: change to your deployed Vercel function URL, or local `vercel dev` URL for testing.
-    // Examples:
-    // - Local dev: "http://127.0.0.1:3000/api/ai"
-    // - Deployed: "https://your-app.vercel.app/api/ai"
-    private static let vercelEndpoint = "https://portfolio-app-drab-two.vercel.app/"
+    // YOUR API endpoint (user-provided)
+    private let endpoint = URL(string: "https://portfolio-app-drab-two.vercel.app/api/ai")!
 
-    static func askAI(text: String, prompt: String, completion: @escaping (Result<String, Error>) -> Void) {
-        guard let url = URL(string: vercelEndpoint) else {
-            completion(.failure(AIServiceError.invalidURL))
-            return
+    private init() {}
+
+    /// Sends POST { text, prompt } and returns the server's answer string.
+    func ask(text: String, prompt: String) async throws -> String {
+        var req = URLRequest(url: endpoint)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body = AIRequest(text: text, prompt: prompt)
+        req.httpBody = try JSONEncoder().encode(body)
+
+        let (data, res) = try await URLSession.shared.data(for: req)
+
+        if let http = res as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            let serverText = String(data: data, encoding: .utf8) ?? "Server error: status \(http.statusCode)"
+            throw NSError(domain: "AIService", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: serverText])
         }
 
-        let requestBody = AIRequest(text: text, prompt: prompt)
-        guard let data = try? JSONEncoder().encode(requestBody) else {
-            completion(.failure(AIServiceError.unknown))
-            return
+        // Try to decode expected shapes
+        if let parsed = try? JSONDecoder().decode(AIResponse.self, from: data) {
+            if let answer = parsed.answer { return answer }
+            if let text = parsed.text { return text }
         }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.httpBody = data
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // Optionally add an app token header for extra protection, if you set it up on Vercel
-        // request.setValue("Bearer <YOUR_APP_TOKEN>", forHTTPHeaderField: "Authorization")
-
-        let task = URLSession.shared.dataTask(with: request) { (data, response, error) in
-            if let err = error {
-                completion(.failure(err))
-                return
-            }
-
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                let msg = String(data: data ?? Data(), encoding: .utf8) ?? "unknown server error"
-                completion(.failure(AIServiceError.serverError(msg)))
-                return
-            }
-
-            guard let d = data else {
-                completion(.failure(AIServiceError.unknown))
-                return
-            }
-
-            if let aiResp = try? JSONDecoder().decode(AIResponse.self, from: d) {
-                completion(.success(aiResp.answer))
-            } else {
-                // try to decode as generic JSON to help debugging
-                let text = String(data: d, encoding: .utf8) ?? ""
-                completion(.failure(AIServiceError.serverError(text)))
-            }
+        // Fallback: return the raw JSON / string
+        if let asString = String(data: data, encoding: .utf8) {
+            return asString
         }
-        task.resume()
+
+        return "No valid response from AI"
     }
 }

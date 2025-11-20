@@ -6,50 +6,27 @@
 //
 
 import SwiftUI
-import UIKit
 import AVFoundation
 
-struct CameraView: UIViewControllerRepresentable {
-    typealias UIViewControllerType = CameraController
+struct CameraView: UIViewRepresentable {
+    let session: AVCaptureSession
 
-    var onPhotoCaptured: (UIImage) -> Void
-
-    func makeUIViewController(context: Context) -> CameraController {
-        let controller = CameraController()
-        controller.photoCaptureDelegate = context.coordinator
-        controller.onPhotoCaptured = onPhotoCaptured
-        return controller
+    func makeUIView(context: Context) -> CameraPreviewView {
+        let v = CameraPreviewView()
+        v.videoPreviewLayer.session = session
+        v.videoPreviewLayer.videoGravity = .resizeAspectFill
+        return v
     }
 
-    func updateUIViewController(_ uiViewController: CameraController, context: Context) { }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
-    class Coordinator: NSObject, AVCapturePhotoCaptureDelegate {
-        var parent: CameraView
-
-        init(_ parent: CameraView) {
-            self.parent = parent
-        }
-
-        func photoOutput(_ output: AVCapturePhotoOutput,
-                         didFinishProcessingPhoto photo: AVCapturePhoto,
-                         error: Error?) {
-
-            if let error = error {
-                print("Photo capture error: \(error)")
-                return
-            }
-
-            guard let data = photo.fileDataRepresentation(),
-                  let image = UIImage(data: data) else {
-                print("Unable to get image data")
-                return
-            }
-
-            parent.onPhotoCaptured(image)
-        }
+    func updateUIView(_ uiView: CameraPreviewView, context: Context) {
+        // nothing
     }
 }
+
+class CameraPreviewView: UIView {
+    override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
+    var videoPreviewLayer: AVCaptureVideoPreviewLayer {
+        layer as! AVCaptureVideoPreviewLayer
+    }
+}
+

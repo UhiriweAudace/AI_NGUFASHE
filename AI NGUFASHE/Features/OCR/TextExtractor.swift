@@ -8,41 +8,36 @@
 import UIKit
 import Vision
 
-class TextExtractor {
-    /// Extracts readable text from a UIImage using Vision OCR.
-    /// Calls completion on a background thread; we do not assume main thread.
-    static func extractText(from image: UIImage, completion: @escaping (String) -> Void) {
-        guard let cgImage = image.cgImage else {
+struct TextExtractor {
+    static func extract(from image: UIImage, completion: @escaping (String) -> Void) {
+        guard let cgImage = image.cgImage ?? image.ensureCGImage() else {
             completion("")
             return
         }
 
-        let request = VNRecognizeTextRequest { (req, err) in
-            if let err = err {
-                print("Vision error: \(err)")
+        let request = VNRecognizeTextRequest { request, error in
+            if let err = error {
+                print("Vision text request error:", err.localizedDescription)
                 completion("")
                 return
             }
 
-            let observations = req.results as? [VNRecognizedTextObservation] ?? []
-            let lines = observations.compactMap { obs -> String? in
-                // take the top candidate from each observation
-                return obs.topCandidates(1).first?.string
-            }
-            let fullText = lines.joined(separator: "\n")
-            completion(fullText)
+            let observations = request.results as? [VNRecognizedTextObservation] ?? []
+            let lines = observations.compactMap { $0.topCandidates(1).first?.string }
+            let combined = lines.joined(separator: "\n")
+            completion(combined)
         }
 
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
-        request.recognitionLanguages = ["en-US"] // adjust or make dynamic if needed
+        // Leave recognitionLanguages empty to use system defaults, or set like ["en-US"]
 
         let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 try handler.perform([request])
             } catch {
-                print("Failed to perform Vision request: \(error)")
+                print("Failed to perform text recognition:", error)
                 completion("")
             }
         }
