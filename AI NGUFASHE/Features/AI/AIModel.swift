@@ -13,5 +13,7 @@ struct AIRequest: Codable {
 }
 
 struct AIResponse: Codable {
-    let answer: String
+    // accept several possible shapes; prefer "answer", fallback to "answer" or raw "text"
+    let answer: String?
+    let text: String?
 }
