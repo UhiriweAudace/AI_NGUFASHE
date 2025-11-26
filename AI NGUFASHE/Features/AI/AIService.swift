@@ -20,7 +20,6 @@ final class AIService {
         guard let url = URL(string: "https://portfolio-app-drab-two.vercel.app/api/ai") else {
             throw URLError(.badURL)
         }
-
         let body = Payload(text: text, prompt: prompt)
         let jsonData = try JSONEncoder().encode(body)
 
